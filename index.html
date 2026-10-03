@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SVG 整形ツール</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --text: #1f2328;
+    --muted: #656d76;
+    --border: #d0d7de;
+    --accent: #0969da;
+    --accent-weak: #ddf4ff;
+    --warn: #9a6700;
+    --warn-bg: #fff8c5;
+    --ok: #1a7f37;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  header {
+    padding: 14px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 18px; }
+  header .version { font-size: 12px; font-weight: normal; color: var(--muted); margin-left: 6px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  main {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 16px;
+    padding: 16px 20px;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .panel h2 { margin: 0 0 10px; font-size: 14px; }
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 18px 10px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    margin-bottom: 14px;
+  }
+  .drop.over { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); }
+  .drop strong { display: block; color: var(--text); margin-bottom: 4px; }
+  fieldset { border: none; padding: 0; margin: 0 0 14px; }
+  legend { font-weight: bold; margin-bottom: 6px; padding: 0; }
+  label { display: block; margin: 4px 0; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  input[type=number] { width: 80px; padding: 3px 5px; }
+  select { padding: 3px 5px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 2px 0 0 22px; }
+  button {
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #f6f8fa;
+    cursor: pointer;
+    font: inherit;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .seg { display: flex; }
+  .seg button { flex: 1; border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; }
+  .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: bold; position: relative; z-index: 1; }
+  .seg button[aria-pressed="true"]:disabled { opacity: 1; background: #9fb8d4; border-color: #9fb8d4; }
+  .meta.top { margin: 0 0 8px; }
+  .stage {
+    min-height: 240px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    overflow: auto;
+    background:
+      conic-gradient(#eee 25%, #fff 0 50%, #eee 0 75%, #fff 0) 0 0 / 16px 16px;
+  }
+  .stage img { display: block; max-width: none; }
+  .stage.fit img { max-width: 100%; height: auto; }
+  .meta { color: var(--muted); margin: 6px 0 0; }
+  .meta b { color: var(--text); }
+  .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .notice { border-radius: 6px; padding: 8px 10px; margin-top: 10px; display: none; }
+  .notice.warn { display: block; background: var(--warn-bg); color: var(--warn); }
+  .notice.ok { display: block; background: #dafbe1; color: var(--ok); }
+  details { margin-top: 12px; }
+  pre {
+    background: #f6f8fa;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    max-height: 360px;
+    overflow: auto;
+    font-size: 12px;
+  }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SVG 整形ツール <span class="version" id="version"></span></h1>
+  <p>Office などで出力した SVG を、読みやすく整形し、ブログなどで使いやすい大きさに調整します。ファイルはこのブラウザーの中だけで処理され、どこにも送信されません。</p>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="drop" id="drop" tabindex="0">
+      <strong>SVG をここにドロップ</strong>
+      またはクリックしてファイルを選択<br>
+      SVG のコードを Ctrl+V で貼り付けることもできます
+    </div>
+    <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
+
+    <fieldset>
+      <legend>表示</legend>
+      <div class="seg" role="group" aria-label="表示する SVG">
+        <button id="showOriginal" aria-pressed="true" disabled>オリジナル</button>
+        <button id="showFormatted" aria-pressed="false" disabled>整形後</button>
+      </div>
+      <div class="seg" role="group" aria-label="表示の大きさ" style="margin-top:6px">
+        <button id="viewFit" aria-pressed="true" disabled>画面に合わせる</button>
+        <button id="viewActual" aria-pressed="false" disabled>実寸</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>見た目の大きさ</legend>
+      <label><input type="radio" name="size" value="width" checked> 幅を指定する</label>
+      <div class="row" style="margin-left:22px">
+        <select id="preset">
+          <option value="480">480</option>
+          <option value="640">640</option>
+          <option value="800" selected>800</option>
+          <option value="1024">1024</option>
+          <option value="1200">1200</option>
+          <option value="custom">任意</option>
+        </select>
+        <input type="number" id="customWidth" min="16" max="10000" value="800" disabled> px
+      </div>
+      <div class="hint">高さは縦横比を保って自動で計算します</div>
+      <label><input type="radio" name="size" value="original"> 元の大きさのまま</label>
+      <label><input type="radio" name="size" value="responsive"> レスポンシブ（表示する場所の幅に合わせる）</label>
+      <div class="hint">width と height を外し、viewBox だけを残します</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>余白</legend>
+      <label><input type="checkbox" id="crop"> 図形のある範囲に切り詰める</label>
+      <div class="row" style="margin-left:22px">
+        周りに <input type="number" id="padding" min="0" max="200" value="8"> px の余白を残す
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>フォント</legend>
+      <label><input type="checkbox" id="fontFallback"> Windows 以外の端末向けのフォントを追加する</label>
+      <div class="hint">Mac では Windows と同じ游ゴシックで、游ゴシックがない端末（iPhone、Android など）では近いゴシック体で表示されるようにします。文字の位置は固定されているため、游ゴシック以外で表示されると、文字の幅が変わって少しずれることがあります</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>整形</legend>
+      <div class="row">字下げ
+        <select id="indent">
+          <option value="2">スペース 2 個</option>
+          <option value="4" selected>スペース 4 個</option>
+          <option value="tab">タブ</option>
+        </select>
+      </div>
+    </fieldset>
+  </section>
+
+  <section class="panel">
+    <div id="emptyMsg" class="empty">SVG ファイルを読み込むと、ここに表示されます。左の「表示」で、オリジナルと整形後を切り替えられます。</div>
+    <div id="result" hidden>
+      <p class="meta top" id="meta"></p>
+      <div class="stage fit" id="stage"></div>
+      <div class="actions">
+        <button id="download" disabled>整形後をダウンロード</button>
+        <button id="copy" disabled>整形後のコードをコピー</button>
+      </div>
+      <div class="notice" id="notice"></div>
+      <details>
+        <summary id="codeTitle">SVG のコード（オリジナル）</summary>
+        <pre id="code"></pre>
+      </details>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+// バージョン（セマンティック バージョニング。変更内容は CHANGELOG.md に書く）
+const APP_VERSION = "1.0.0";
+document.getElementById("version").textContent = "v" + APP_VERSION;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+// 文字を持つ要素。中の空白も意味を持つので、字下げや改行を加えない
+const INLINE_ELEMENTS = new Set(["text", "tspan", "textPath", "title", "desc", "style", "script"]);
+// 追加するフォント。YuGothic は Mac での游ゴシックの名前（Windows の "Yu Gothic" では Mac で見つからないことがある）。
+// そのあとは游ゴシックがない端末向け（iPhone・Mac のヒラギノ、Windows のメイリオ、Android などの Noto Sans JP）
+const FALLBACK_FONTS = ["YuGothic", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Meiryo", "Noto Sans JP"];
+const GENERIC_FONTS = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui"]);
+
+const state = {
+  name: "", source: "", output: "", outputUrl: "", sourceUrl: "",
+  result: null,        // 整形の結果（読み込めなかった場合は null）
+  view: "original",    // 表示中の側：original / formatted
+  fit: true,           // 画面に合わせて縮小するか
+};
+
+// ---------------------------------------------------------------- 読み込み
+
+const drop = document.getElementById("drop");
+const fileInput = document.getElementById("file");
+
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") fileInput.click(); });
+fileInput.addEventListener("change", () => { if (fileInput.files[0]) readFile(fileInput.files[0]); });
+
+["dragenter", "dragover"].forEach(t => document.addEventListener(t, e => {
+  e.preventDefault();
+  drop.classList.add("over");
+}));
+["dragleave", "drop"].forEach(t => document.addEventListener(t, e => {
+  e.preventDefault();
+  if (t === "drop" || e.target === document.documentElement) drop.classList.remove("over");
+}));
+document.addEventListener("drop", e => {
+  const f = e.dataTransfer.files[0];
+  if (f) readFile(f);
+});
+
+document.addEventListener("paste", e => {
+  if (e.target.closest("input, textarea")) return;
+  const text = e.clipboardData.getData("text/plain");
+  if (text && /<svg[\s>]/i.test(text)) {
+    e.preventDefault();
+    load("pasted.svg", text);
+    return;
+  }
+  if ([...e.clipboardData.items].some(i => i.type.startsWith("image/"))) {
+    e.preventDefault();
+    showNotice("warn", "画像の貼り付けには、まだ対応していません（今後対応予定）。SVG のファイルか、SVG のコードを貼り付けてください。");
+  }
+});
+
+/** 使い終わった画像の URL を片付ける。表示の切り替え中に消さないよう、少し待ってから行う */
+function retireUrl(url) {
+  if (url) setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => load(file.name, reader.result);
+  reader.readAsText(file, "utf-8");
+}
+
+function load(name, text) {
+  state.name = name.replace(/\.svg$/i, "");
+  state.source = text;
+  state.output = "";
+  state.result = null;
+  state.view = "original";
+  retireUrl(state.sourceUrl);
+  retireUrl(state.outputUrl);
+  state.sourceUrl = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+  state.outputUrl = "";
+  document.getElementById("emptyMsg").hidden = true;
+  document.getElementById("result").hidden = false;
+  hideNotice();
+  // 整形は一瞬で終わるので、読み込んだ時点で今の設定のまま整形しておく（表示はオリジナル）
+  if (!runFormat()) render();
+}
+
+// 設定を変えたら、すぐに整形し直す
+document.querySelectorAll("input, select").forEach(el => el.addEventListener("input", () => {
+  document.getElementById("customWidth").disabled = document.getElementById("preset").value !== "custom";
+  if (state.source) runFormat();
+}));
+
+// ---------------------------------------------------------------- ボタン
+
+document.getElementById("showOriginal").addEventListener("click", () => { state.view = "original"; render(); });
+document.getElementById("showFormatted").addEventListener("click", () => { if (state.result) { state.view = "formatted"; render(); } });
+document.getElementById("viewFit").addEventListener("click", () => { state.fit = true; render(); });
+document.getElementById("viewActual").addEventListener("click", () => { state.fit = false; render(); });
+
+// ---------------------------------------------------------------- 設定の読み取り
+
+function readOptions() {
+  const sizeMode = document.querySelector("input[name=size]:checked").value;
+  const preset = document.getElementById("preset").value;
+  const width = preset === "custom" ? Number(document.getElementById("customWidth").value) : Number(preset);
+  const indentSel = document.getElementById("indent").value;
+  return {
+    sizeMode,
+    width,
+    crop: document.getElementById("crop").checked,
+    padding: Math.max(0, Number(document.getElementById("padding").value) || 0),
+    fontFallback: document.getElementById("fontFallback").checked,
+    indent: indentSel === "tab" ? "\t" : " ".repeat(Number(indentSel)),
+  };
+}
+
+// ---------------------------------------------------------------- 変換の本体
+
+/**
+ * SVG の文字列を整形・サイズ調整して返す。
+ * 外から試せるように window に公開している（例：formatSvg(text, {sizeMode: "width", width: 800})）。
+ */
+function formatSvg(source, opts) {
+  const o = Object.assign({
+    sizeMode: "width", width: 800, crop: false, padding: 8,
+    // selfClose: 中身のない要素を <rect /> と書くか（false なら <rect></rect>）。画面では <rect /> に固定
+    fontFallback: false, indent: "    ", selfClose: true,
+  }, opts);
+  const report = { removed: [], warnings: [] };
+
+  const doc = new DOMParser().parseFromString(source, "image/svg+xml");
+  const err = doc.querySelector("parsererror");
+  if (err) throw new Error("SVG として読み込めませんでした。ファイルの書式に誤りがあるか、SVG ではないファイルです。");
+  const svg = doc.documentElement;
+  if (svg.localName !== "svg") throw new Error("ルートの要素が <svg> ではありません");
+
+  sanitize(svg, report);
+  if (o.fontFallback) addFontFallback(svg);
+
+  // 元の大きさと viewBox
+  const origW = parseLength(svg.getAttribute("width"));
+  const origH = parseLength(svg.getAttribute("height"));
+  let vb = parseViewBox(svg.getAttribute("viewBox"));
+  if (!vb) {
+    if (origW && origH) vb = { x: 0, y: 0, w: origW, h: origH };
+    else report.warnings.push("width・height・viewBox のどれからも大きさが分からないため、大きさは変更していません。");
+  }
+
+  if (vb && o.crop) {
+    const box = measureContent(svg, vb);
+    if (box && box.width > 0 && box.height > 0) {
+      // 余白（px）を viewBox の単位に換算する。
+      // 幅を指定する場合：出力幅 W に対して (box + 2*pad) が W px になるので、pad * W / (box + 2*pad) = padding を解く
+      // それ以外の場合：viewBox の 1 単位 = 1 px として扱う
+      const W = o.width;
+      const pad = o.sizeMode === "width" && W > o.padding * 2
+        ? o.padding * box.width / (W - o.padding * 2)
+        : o.padding;
+      vb = {
+        x: round(box.x - pad), y: round(box.y - pad),
+        w: round(box.width + pad * 2), h: round(box.height + pad * 2),
+      };
+    } else {
+      report.warnings.push("図形の範囲を測れなかったため、余白の切り詰めは行っていません。");
+    }
+  }
+
+  if (vb) {
+    const attrs = {};
+    if (o.sizeMode === "width") {
+      attrs.width = String(o.width);
+      attrs.height = String(Math.round(o.width * vb.h / vb.w));
+    } else if (o.sizeMode === "original") {
+      attrs.width = String(o.crop ? round(vb.w) : (origW || vb.w));
+      attrs.height = String(o.crop ? round(vb.h) : (origH || vb.h));
+    }
+    attrs.viewBox = [vb.x, vb.y, vb.w, vb.h].map(round).join(" ");
+    setRootSize(svg, attrs);
+  }
+
+  const lines = [];
+  const decl = source.match(/^﻿?\s*(<\?xml[^?]*\?>)/);
+  if (decl) lines.push(decl[1]);
+  lines.push(serialize(svg, 0, o));
+  return { svg: lines.join("\n") + "\n", report, viewBox: vb, origW, origH };
+}
+
+/** スクリプトやイベント属性など、表示に不要で危険になりうるものを取り除く */
+function sanitize(root, report) {
+  root.querySelectorAll("script").forEach(el => { el.remove(); report.removed.push("<script> 要素"); });
+  const all = [root, ...root.querySelectorAll("*")];
+  for (const el of all) {
+    for (const a of [...el.attributes]) {
+      const v = a.value.trim().toLowerCase();
+      if (/^on/i.test(a.localName)) { el.removeAttributeNode(a); report.removed.push(`${a.name} 属性`); }
+      else if ((a.localName === "href") && v.startsWith("javascript:")) { el.removeAttributeNode(a); report.removed.push("javascript: のリンク"); }
+    }
+  }
+}
+
+/** font-family に、游ゴシックがない環境向けのフォントを書き足す */
+function addFontFallback(root) {
+  const fix = value => {
+    const names = value.split(",").map(s => s.trim()).filter(Boolean);
+    const plain = n => n.replace(/^['"]|['"]$/g, "").toLowerCase();
+    const have = new Set(names.map(plain));
+    if (FALLBACK_FONTS.every(f => have.has(f.toLowerCase()))) return value;
+    const generic = names.filter(n => GENERIC_FONTS.has(plain(n)));
+    const specific = names.filter(n => !GENERIC_FONTS.has(plain(n)));
+    const extra = FALLBACK_FONTS.filter(f => !have.has(f.toLowerCase()));
+    return [...specific, ...extra, ...(generic.length ? generic : ["sans-serif"])].join(",");
+  };
+  for (const el of [root, ...root.querySelectorAll("*")]) {
+    if (el.hasAttribute("font-family")) el.setAttribute("font-family", fix(el.getAttribute("font-family")));
+    const style = el.getAttribute("style");
+    if (style && /font-family/i.test(style)) {
+      el.setAttribute("style", style.replace(/font-family\s*:\s*([^;]+)/gi, (m, v) => "font-family:" + fix(v)));
+    }
+  }
+}
+
+/** 図形のある範囲を、実際に描画して測る（viewBox の座標で返す） */
+function measureContent(svg, vb) {
+  const holder = document.createElement("div");
+  holder.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden";
+  const clone = document.importNode(svg, true);
+  clone.setAttribute("width", vb.w);
+  clone.setAttribute("height", vb.h);
+  clone.setAttribute("viewBox", [vb.x, vb.y, vb.w, vb.h].join(" "));
+  holder.appendChild(clone);
+  document.body.appendChild(holder);
+  try {
+    const b = clone.getBBox();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  } catch (e) {
+    return null;
+  } finally {
+    holder.remove();
+  }
+}
+
+/** ルートの width・height・viewBox を設定し、属性の並びを width, height, viewBox, その他 にする */
+function setRootSize(svg, attrs) {
+  const others = [...svg.attributes]
+    .filter(a => !["width", "height", "viewBox"].includes(a.name))
+    .map(a => [a.name, a.value, a.namespaceURI]);
+  for (const a of [...svg.attributes]) svg.removeAttributeNode(a);
+  for (const k of ["width", "height", "viewBox"]) if (attrs[k] !== undefined) svg.setAttribute(k, attrs[k]);
+  for (const [name, value, ns] of others) {
+    if (ns) svg.setAttributeNS(ns, name, value); else svg.setAttribute(name, value);
+  }
+}
+
+/** 字下げを付けて文字列にする */
+function serialize(node, depth, o) {
+  const pad = o.indent.repeat(depth);
+  switch (node.nodeType) {
+    case Node.ELEMENT_NODE: {
+      const name = node.nodeName;
+      const attrs = [...node.attributes].map(a => ` ${a.name}="${escapeAttr(a.value)}"`).join("");
+      const children = [...node.childNodes];
+      const hasText = children.some(c =>
+        (c.nodeType === Node.TEXT_NODE && c.nodeValue.trim() !== "") || c.nodeType === Node.CDATA_SECTION_NODE);
+      if (children.length === 0 || children.every(c => c.nodeType === Node.TEXT_NODE && c.nodeValue.trim() === "" && !INLINE_ELEMENTS.has(name))) {
+        return o.selfClose ? `${pad}<${name}${attrs} />` : `${pad}<${name}${attrs}></${name}>`;
+      }
+      if (INLINE_ELEMENTS.has(node.localName) || hasText) {
+        // 文字を含む要素は、中身をそのまま 1 行で書く（空白を変えない）
+        return `${pad}<${name}${attrs}>${children.map(c => serializeInline(c)).join("")}</${name}>`;
+      }
+      const inner = children
+        .filter(c => !(c.nodeType === Node.TEXT_NODE && c.nodeValue.trim() === ""))
+        .map(c => serialize(c, depth + 1, o))
+        .join("\n");
+      return `${pad}<${name}${attrs}>\n${inner}\n${pad}</${name}>`;
+    }
+    case Node.TEXT_NODE: return pad + escapeText(node.nodeValue.trim());
+    case Node.CDATA_SECTION_NODE: return `${pad}<![CDATA[${node.nodeValue}]]>`;
+    case Node.COMMENT_NODE: return `${pad}<!--${node.nodeValue}-->`;
+    default: return "";
+  }
+}
+
+function serializeInline(node) {
+  switch (node.nodeType) {
+    case Node.ELEMENT_NODE: {
+      const name = node.nodeName;
+      const attrs = [...node.attributes].map(a => ` ${a.name}="${escapeAttr(a.value)}"`).join("");
+      const inner = [...node.childNodes].map(serializeInline).join("");
+      return `<${name}${attrs}>${inner}</${name}>`;
+    }
+    case Node.TEXT_NODE: return escapeText(node.nodeValue);
+    case Node.CDATA_SECTION_NODE: return `<![CDATA[${node.nodeValue}]]>`;
+    case Node.COMMENT_NODE: return `<!--${node.nodeValue}-->`;
+    default: return "";
+  }
+}
+
+const escapeAttr = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const escapeText = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const round = n => Math.round(n * 100) / 100;
+
+function parseLength(v) {
+  if (!v) return null;
+  const m = String(v).trim().match(/^([0-9.]+)(px)?$/);
+  return m ? Number(m[1]) : null;
+}
+function parseViewBox(v) {
+  if (!v) return null;
+  const n = v.trim().split(/[\s,]+/).map(Number);
+  return n.length === 4 && n.every(Number.isFinite) && n[2] > 0 && n[3] > 0 ? { x: n[0], y: n[1], w: n[2], h: n[3] } : null;
+}
+
+window.formatSvg = formatSvg;
+
+// ---------------------------------------------------------------- 画面への反映
+
+/** 今の設定で整形する。成功したら true */
+function runFormat() {
+  let result;
+  try {
+    result = formatSvg(state.source, readOptions());
+  } catch (e) {
+    showNotice("warn", e.message);
+    return false;
+  }
+  state.result = result;
+  state.output = result.svg;
+  retireUrl(state.outputUrl);
+  state.outputUrl = URL.createObjectURL(new Blob([state.output], { type: "image/svg+xml" }));
+
+  const msgs = [];
+  if (result.report.removed.length) msgs.push("安全のため取り除いたもの：" + [...new Set(result.report.removed)].join("、"));
+  msgs.push(...result.report.warnings);
+  if (msgs.length) showNotice("warn", msgs.join(" ")); else hideNotice();
+  render();
+  return true;
+}
+
+/** 表示中の側（オリジナル／整形後）を画面に出す */
+function render() {
+  const formatted = state.view === "formatted" && state.result;
+  const text = formatted ? state.output : state.source;
+  const url = formatted ? state.outputUrl : state.sourceUrl;
+
+  const press = (id, on) => document.getElementById(id).setAttribute("aria-pressed", String(on));
+  press("showOriginal", !formatted);
+  press("showFormatted", !!formatted);
+  press("viewFit", state.fit);
+  press("viewActual", !state.fit);
+  document.getElementById("showOriginal").disabled = false;
+  document.getElementById("viewFit").disabled = false;
+  document.getElementById("showFormatted").disabled = !state.result;
+  document.getElementById("download").disabled = !state.result;
+  document.getElementById("copy").disabled = !state.result;
+
+  // 画像として表示する（<img> で表示すると SVG の中のスクリプトは動かない）
+  const stage = document.getElementById("stage");
+  const responsive = formatted && readOptions().sizeMode === "responsive";
+  // レスポンシブには実際の大きさがないので、「実寸」は選べないようにする
+  document.getElementById("viewActual").disabled = responsive;
+  if (responsive) { press("viewFit", true); press("viewActual", false); }
+  stage.classList.toggle("fit", state.fit || responsive);
+  stage.innerHTML = `<img alt="${formatted ? "整形後" : "オリジナル"}" src="${url}">`;
+
+  const el = new DOMParser().parseFromString(text, "image/svg+xml").documentElement;
+  const w = el.getAttribute("width"), h = el.getAttribute("height");
+  const size = responsive ? "表示する場所の幅に合わせる" : (w && h ? `${w} × ${h}` : "指定なし");
+  const kb = (new Blob([text]).size / 1024).toFixed(1) + " KB";
+  const lines = text.trimEnd().split("\n").length;
+  const how = responsive ? "表示エリアの幅で表示" : (state.fit ? "大きい場合は画面に合わせて縮小して表示" : "実寸で表示");
+  document.getElementById("meta").innerHTML =
+    `<b>${formatted ? "整形後" : "オリジナル"}</b> ／ 大きさ <b>${size}</b>（${how}）／ viewBox ${el.getAttribute("viewBox") || "なし"} ／ ${kb} ／ ${lines} 行`;
+  document.getElementById("codeTitle").textContent = `SVG のコード（${formatted ? "整形後" : "オリジナル"}）`;
+  document.getElementById("code").textContent = text;
+}
+
+document.getElementById("download").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = state.outputUrl;
+  a.download = `${state.name || "image"}-formatted.svg`;
+  a.click();
+});
+
+document.getElementById("copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(state.output);
+    showNotice("ok", "SVG のコードをコピーしました。");
+  } catch (e) {
+    showNotice("warn", "コピーできませんでした。下の「整形後の SVG のコード」から選択してコピーしてください。");
+  }
+});
+
+function showNotice(kind, msg) {
+  const n = document.getElementById("notice");
+  n.className = "notice " + kind;
+  n.textContent = msg;
+}
+function hideNotice() {
+  const n = document.getElementById("notice");
+  n.className = "notice";
+  n.textContent = "";
+}
+</script>
+</body>
+</html>
