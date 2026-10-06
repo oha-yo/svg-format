@@ -1,5 +1,8 @@
 # SVG 整形ツール
 
+> **このリポジトリは更新を終えました。** SVG 整形ツールは [clip-tools](https://github.com/oha-yo/clip-tools) の一部になり、そちらで更新を続けています（機能はこの v1.0.0 と同じ）。
+> ブログで使う：https://oha-yo.com/tools/svg-format/
+
 Office（PowerPoint など）で出力した SVG を、読みやすく整形し、ブログなどで使いやすい大きさに調整するツールです。
 
 **HTML ファイル 1 枚だけで動きます。** 処理はすべてブラウザーの中で行うので、読み込んだ SVG がどこかに送信されることはありません。
